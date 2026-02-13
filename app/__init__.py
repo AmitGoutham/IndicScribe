@@ -1,0 +1,1 @@
+"""Indic Scribe Application Package"""

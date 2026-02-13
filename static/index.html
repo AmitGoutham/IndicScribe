@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Indic Scribe - OCR & Speech to Text</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Noto Sans fonts for Indian scripts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;700&family=Noto+Sans+Kannada:wght@400;500;700&family=Noto+Sans+Telugu:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Quill.js Rich Text Editor -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Typography for Indian scripts */
+        .hindi-font {
+            font-family: 'Noto Sans Devanagari', sans-serif;
+        }
+
+        .kannada-font {
+            font-family: 'Noto Sans Kannada', sans-serif;
+        }
+
+        .telugu-font {
+            font-family: 'Noto Sans Telugu', sans-serif;
+        }
+
+        .sanskrit-font {
+            font-family: 'Noto Sans Devanagari', sans-serif;
+        }
+
+        /* Quill Editor Styling */
+        #editor {
+            background: white;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        .ql-toolbar {
+            border: 1px solid #ddd;
+            border-radius: 0.375rem;
+        }
+
+        .ql-container {
+            border: 1px solid #ddd;
+            border-radius: 0.375rem;
+            font-size: 16px;
+        }
+
+        /* A4 Paper Styling */
+        .a4-container {
+            width: 210mm;
+            height: 297mm;
+            max-width: 100vw;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Recording indicator */
+        .recording-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background: white;
+            }
+            
+            .no-print {
+                display: none !important;
+            }
+
+            .a4-container {
+                width: 100%;
+                max-width: 100%;
+                height: auto;
+                box-shadow: none;
+                page-break-after: auto;
+            }
+
+            .ql-toolbar,
+            .ql-container {
+                border: none;
+                box-shadow: none;
+            }
+
+            .ql-editor {
+                padding: 0;
+            }
+        }
+
+        /* Floating PDF Button */
+        .floating-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            cursor: pointer;
+            z-index: 40;
+            transition: all 0.3s ease;
+        }
+
+        .floating-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .floating-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Mic Button Toggle States */
+        .mic-btn {
+            transition: all 0.3s ease;
+        }
+
+        .mic-btn.recording {
+            background-color: #ef4444;
+            color: white;
+        }
+
+        .mic-btn.recording:hover {
+            background-color: #dc2626;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg no-print">
+        <div class="max-w-7xl mx-auto px-4 py-6">
+            <h1 class="text-3xl font-bold">Indic Scribe</h1>
+            <p class="text-blue-100 text-sm mt-1">Powered by Google Cloud Vision & Speech-to-Text</p>
+        </div>
+    </header>
+
+    <!-- Toolbar -->
+    <nav class="bg-white border-b border-gray-200 sticky top-0 shadow-sm no-print z-30">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-center gap-4 flex-wrap">
+                <!-- Language Dropdown -->
+                <div class="flex items-center gap-2">
+                    <label for="language" class="text-sm font-medium text-gray-700">Language:</label>
+                    <select id="language" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                        <option value="en-US">English</option>
+                        <option value="hi-IN" selected>Hindi</option>
+                        <option value="sa-IN">Sanskrit</option>
+                        <option value="kn-IN">Kannada</option>
+                        <option value="te-IN">Telugu</option>
+                    </select>
+                </div>
+
+                <!-- Upload File Button -->
+                <button id="uploadBtn" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Upload Image/PDF
+                </button>
+
+                <!-- Mic Record Button -->
+                <button id="micBtn" class="mic-btn flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                        <path d="M17 16.91c-1.48 1.46-3.51 2.36-5.76 2.36s-4.29-.9-5.77-2.36l-1.04 1.05c1.84 1.89 4.35 3.05 7.05 3.05s5.21-1.16 7.05-3.05l-1.035-1.04z" />
+                    </svg>
+                    <span id="micText">Record</span>
+                </button>
+
+                <!-- Hidden File Input -->
+                <input type="file" id="fileInput" accept="image/*,.pdf" class="hidden">
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Spinner (Hidden by default) -->
+        <div id="spinner" class="hidden flex items-center justify-center gap-3 mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="spinner"></div>
+            <span id="spinnerText" class="text-blue-700 text-sm font-medium">Processing...</span>
+        </div>
+
+        <!-- A4 Editor Container -->
+        <div class="flex justify-center">
+            <div class="a4-container bg-white p-8 md:p-12">
+                <!-- Quill Editor -->
+                <div id="editor"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Floating PDF Button -->
+    <button id="pdfBtn" class="floating-btn bg-red-600 text-white hover:bg-red-700 no-print" title="Print or Save as PDF">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+    </button>
+
+    <!-- Quill.js Library -->
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+
+    <script>
+        // ==================== Quill Editor Initialization ====================
+        const quill = new Quill('#editor', {
+            theme: 'snow',
+            placeholder: 'Start typing... or upload an image/PDF for OCR, or record audio for transcription',
+            modules: {
+                toolbar: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    ['blockquote', 'code-block'],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'font': [] }],
+                    [{ 'align': [] }],
+                    ['clean']
+                ]
+            }
+        });
+
+        // ==================== Language & Font Management ====================
+        const languageSelect = document.getElementById('language');
+        const fontMap = {
+            'en-US': 'Inter',
+            'hi-IN': 'Noto Sans Devanagari',
+            'sa-IN': 'Noto Sans Devanagari',
+            'kn-IN': 'Noto Sans Kannada',
+            'te-IN': 'Noto Sans Telugu'
+        };
+
+        languageSelect.addEventListener('change', (e) => {
+            const font = fontMap[e.target.value];
+            quill.format('font', font);
+        });
+
+        // ==================== OCR: Upload & Process Image/PDF ====================
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const spinner = document.getElementById('spinner');
+        const spinnerText = document.getElementById('spinnerText');
+
+        uploadBtn.addEventListener('click', () => {
+            console.log('Upload button clicked');
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            console.log('File input change event fired, file:', file);
+            if (!file) {
+                console.warn('No file selected');
+                return;
+            }
+
+            // Show spinner
+            console.log('Showing spinner...');
+            spinner.classList.remove('hidden');
+            spinnerText.textContent = 'Performing OCR...';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                console.log('Sending POST request to /api/ocr with file:', file.name, 'size:', file.size);
+                const response = await fetch('/api/ocr', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                console.log('Response status:', response.status, 'ok:', response.ok);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Response error:', errorText);
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('Full API response:', result);
+                console.log('Text field:', result.text, 'Type:', typeof result.text, 'Length:', result.text?.length);
+                
+                // Append extracted text to editor
+                if (result.text && result.text.trim().length > 0) {
+                    console.log('Inserting text into editor...');
+                    quill.insertText(quill.getLength(), '\n' + result.text + '\n');
+                    quill.setSelection(quill.getLength());
+                    console.log('Text inserted successfully');
+                } else {
+                    console.warn('No text in result or empty string');
+                    quill.insertText(quill.getLength(), '\n[No text detected in document]\n');
+                }
+            } catch (error) {
+                console.error('OCR Error caught:', error);
+                quill.insertText(quill.getLength(), '\n[Error: ' + error.message + ']\n');
+            } finally {
+                // Hide spinner
+                console.log('Hiding spinner');
+                spinner.classList.add('hidden');
+                fileInput.value = ''; // Reset input
+            }
+        });
+
+        // ==================== Voice: MediaRecorder & Transcription ====================
+        const micBtn = document.getElementById('micBtn');
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        micBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                // Start recording
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        // Show spinner
+                        spinner.classList.remove('hidden');
+                        spinnerText.textContent = 'Transcribing...';
+
+                        try {
+                            // Create blob from audio chunks
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+
+                            // Create FormData
+                            const formData = new FormData();
+                            formData.append('file', audioBlob, 'recording.webm');
+                            formData.append('language', languageSelect.value);
+
+                            // Send to transcription API
+                            const response = await fetch('/api/voice', {
+                                method: 'POST',
+                                body: formData
+                            });
+
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+
+                            const result = await response.json();
+
+                            // Append transcribed text to editor
+                            if (result.text) {
+                                quill.insertText(quill.getLength(), '\n' + result.text + '\n');
+                                quill.setSelection(quill.getLength());
+                            }
+                        } catch (error) {
+                            console.error('Transcription Error:', error);
+                            quill.insertText(quill.getLength(), '\n[Error: Failed to transcribe - ' + error.message + ']\n');
+                        } finally {
+                            // Hide spinner
+                            spinner.classList.add('hidden');
+
+                            // Stop all audio tracks
+                            stream.getTracks().forEach(track => track.stop());
+                        }
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording', 'recording-pulse');
+                    document.getElementById('micText').textContent = 'Stop';
+                } catch (error) {
+                    console.error('Microphone Error:', error);
+                    alert('Unable to access microphone. Please check permissions.');
+                }
+            } else {
+                // Stop recording
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove('recording', 'recording-pulse');
+                document.getElementById('micText').textContent = 'Record';
+            }
+        });
+
+        // ==================== PDF: Print & Save ====================
+        const pdfBtn = document.getElementById('pdfBtn');
+        pdfBtn.addEventListener('click', () => {
+            window.print();
+        });
+
+        // ==================== Initialize Font ====================
+        quill.format('font', fontMap[languageSelect.value]);
+    </script>
+</body>
+</html>
