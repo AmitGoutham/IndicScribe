@@ -35,7 +35,7 @@ export const api = {
         });
 
         if (!response.ok) {
-            const error = await response.json().catch(() => ({ detail: 'Transcription failed' }));
+            const error = await response.json().catch(() => ({ detail: 'Voice transcription failed' }));
             throw new Error(error.detail || 'Transcription failed');
         }
 

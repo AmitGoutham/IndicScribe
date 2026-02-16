@@ -9,20 +9,31 @@ export const snip = {
     snipStart: null,
     snipRect: null,
     snipSelection: null,
-    sourceViewer: document.getElementById('sourceViewer'),
+    sourceViewer: null,
 
     init(onComplete) {
+        this.sourceViewer = document.getElementById('sourceViewer');
+        if (!this.sourceViewer) return;
+
         this.sourceViewer.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         this.sourceViewer.addEventListener('mousemove', (e) => this.handleMouseMove(e));
         this.sourceViewer.addEventListener('mouseup', (e) => this.handleMouseUp(e));
 
-        document.getElementById('cancelSnipOcrBtn').onclick = () => this.cancel();
-        document.getElementById('confirmSnipOcrBtn').onclick = () => this.confirm(onComplete);
+        document.getElementById('cancelSnipOcrBtn').addEventListener('click', () => this.cancel());
+        document.getElementById('confirmSnipOcrBtn').addEventListener('click', () => this.confirm(onComplete));
 
         const modal = document.getElementById('snipOcrModal');
         modal.addEventListener('click', (e) => {
             if (e.target === modal) this.cancel();
         });
+    },
+
+    getRelativeCoords(e) {
+        const rect = this.sourceViewer.getBoundingClientRect();
+        return {
+            x: e.clientX - rect.left + this.sourceViewer.scrollLeft,
+            y: e.clientY - rect.top + this.sourceViewer.scrollTop
+        };
     },
 
     createSnipRect(x, y) {
@@ -44,23 +55,37 @@ export const snip = {
 
     handleMouseDown(e) {
         if (e.button !== 0) return;
-        if (!(e.target.tagName === 'CANVAS' || e.target.tagName === 'IMG')) return;
+
+        // Find if we clicked on an image or canvas
+        const target = e.target.closest('canvas, img');
+        if (!target || !this.sourceViewer.contains(target)) return;
 
         if (this.snipRect) this.snipRect.remove();
 
+        const coords = this.getRelativeCoords(e);
         this.isSnipping = true;
-        this.snipStart = { x: e.offsetX, y: e.offsetY, target: e.target };
-        this.snipRect = this.createSnipRect(e.offsetX, e.offsetY);
+        this.snipStart = {
+            x: coords.x,
+            y: coords.y,
+            target: target,
+            // also record target-relative start for scaling later
+            targetX: e.offsetX,
+            targetY: e.offsetY
+        };
+
+        this.snipRect = this.createSnipRect(coords.x, coords.y);
         this.sourceViewer.style.position = 'relative';
         this.sourceViewer.appendChild(this.snipRect);
     },
 
     handleMouseMove(e) {
         if (!this.isSnipping || !this.snipRect) return;
-        const x = Math.min(e.offsetX, this.snipStart.x);
-        const y = Math.min(e.offsetY, this.snipStart.y);
-        const w = Math.abs(e.offsetX - this.snipStart.x);
-        const h = Math.abs(e.offsetY - this.snipStart.y);
+
+        const coords = this.getRelativeCoords(e);
+        const x = Math.min(coords.x, this.snipStart.x);
+        const y = Math.min(coords.y, this.snipStart.y);
+        const w = Math.abs(coords.x - this.snipStart.x);
+        const h = Math.abs(coords.y - this.snipStart.y);
 
         Object.assign(this.snipRect.style, {
             left: `${x}px`,
@@ -74,10 +99,11 @@ export const snip = {
         if (!this.isSnipping || !this.snipRect) return;
         this.isSnipping = false;
 
-        const x = Math.min(e.offsetX, this.snipStart.x);
-        const y = Math.min(e.offsetY, this.snipStart.y);
-        const w = Math.abs(e.offsetX - this.snipStart.x);
-        const h = Math.abs(e.offsetY - this.snipStart.y);
+        const coords = this.getRelativeCoords(e);
+        const x = Math.min(coords.x, this.snipStart.x);
+        const y = Math.min(coords.y, this.snipStart.y);
+        const w = Math.abs(coords.x - this.snipStart.x);
+        const h = Math.abs(coords.y - this.snipStart.y);
 
         if (w < 10 || h < 10) {
             this.snipRect.remove();
@@ -85,7 +111,23 @@ export const snip = {
             return;
         }
 
-        this.snipSelection = { x, y, w, h, target: this.snipStart.target };
+        // To extract correctly, we need target-relative coordinates
+        const targetRect = this.snipStart.target.getBoundingClientRect();
+        const selectionX = e.clientX - targetRect.left;
+        const selectionY = e.clientY - targetRect.top;
+
+        const finalizedX = Math.min(selectionX, this.snipStart.targetX);
+        const finalizedY = Math.min(selectionY, this.snipStart.targetY);
+        const finalizedW = Math.abs(selectionX - this.snipStart.targetX);
+        const finalizedH = Math.abs(selectionY - this.snipStart.targetY);
+
+        this.snipSelection = {
+            x: finalizedX,
+            y: finalizedY,
+            w: finalizedW,
+            h: finalizedH,
+            target: this.snipStart.target
+        };
         document.getElementById('snipOcrModal').classList.remove('hidden');
     },
 

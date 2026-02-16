@@ -8,6 +8,18 @@
 
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
 
     <!-- Google Fonts: Noto Sans fonts for Indian scripts -->
     <link
@@ -24,22 +36,27 @@
 
 <body class="bg-gray-50">
     <!-- Header -->
-    <header class="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg no-print">
-        <div class="max-w-7xl mx-auto px-4 py-6">
-            <h1 class="text-3xl font-bold">Indic Scribe</h1>
-            <p class="text-blue-100 text-sm mt-1">Powered by Google Cloud Vision & Speech-to-Text</p>
+    <header
+        class="bg-gradient-to-r from-blue-600 to-blue-800 dark:from-slate-800 dark:to-slate-900 text-white shadow-lg no-print">
+        <div class="max-w-7xl mx-auto px-4 py-8">
+            <h1 class="text-4xl font-extrabold tracking-tight">Indic Scribe</h1>
+            <p class="text-blue-100 dark:text-slate-300 text-sm mt-2 opacity-90">Precision OCR & Speech-to-Text for
+                Indic Languages</p>
         </div>
     </header>
 
     <!-- Toolbar -->
-    <nav class="bg-white border-b border-gray-200 sticky top-0 shadow-sm no-print z-30">
+    <nav
+        class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 sticky top-0 shadow-sm no-print z-30">
         <div class="max-w-7xl mx-auto px-4 py-4">
             <div class="flex items-center justify-center gap-4 flex-wrap">
                 <!-- Language Dropdown -->
                 <div class="flex items-center gap-2">
-                    <label for="language" class="text-sm font-medium text-gray-700">Language:</label>
+                    <label for="language"
+                        class="text-sm font-medium text-gray-700 dark:text-slate-300">Language:</label>
                     <select id="language"
-                        class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                        class="px-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm dark:text-white">
+                        <option value="auto">Auto-detect</option>
                         <option value="en-US">English</option>
                         <option value="hi-IN" selected>Hindi</option>
                         <option value="sa-IN">Sanskrit</option>
@@ -71,13 +88,34 @@
 
                 <!-- Mic Record Button -->
                 <button id="micBtn"
-                    class="mic-btn flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium">
+                    class="mic-btn flex items-center gap-2 px-4 py-2 bg-gray-600 dark:bg-slate-700 text-white rounded-lg hover:bg-gray-700 dark:hover:bg-slate-600 transition-colors text-sm font-medium relative overflow-hidden">
+                    <div id="volumeMeter" class="absolute bottom-0 left-0 h-1 bg-green-400 transition-all duration-75"
+                        style="width: 0%"></div>
                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
                         <path
                             d="M17 16.91c-1.48 1.46-3.51 2.36-5.76 2.36s-4.29-.9-5.77-2.36l-1.04 1.05c1.84 1.89 4.35 3.05 7.05 3.05s5.21-1.16 7.05-3.05l-1.035-1.04z" />
                     </svg>
                     <span id="micText">Record</span>
+                </button>
+
+                <!-- Theme Toggle -->
+                <button id="themeToggle" class="theme-toggle" aria-label="Toggle Theme">
+                    <span class="theme-toggle-track">
+                        <span class="theme-toggle-icon sun">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        </span>
+                        <span class="theme-toggle-icon moon">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                            </svg>
+                        </span>
+                    </span>
+                    <span class="theme-toggle-thumb"></span>
                 </button>
 
                 <!-- Hidden File Input -->
@@ -91,10 +129,12 @@
         <!-- Spinner (Hidden by default) -->
         <!-- Snip OCR Modal -->
         <div id="snipOcrModal"
-            class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print">
-            <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Run OCR on selected area?</h2>
-                <div class="flex gap-3 pt-4 border-t border-gray-200">
+            class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 no-print">
+            <div
+                class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-200 dark:border-slate-800">
+                <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-4">Run OCR?</h2>
+                <p class="text-gray-600 dark:text-slate-400 mb-6 font-medium">Process the selected area?</p>
+                <div class="flex gap-4">
                     <button id="cancelSnipOcrBtn"
                         class="close-modal flex-1 px-4 py-2 text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium transition-colors text-sm">Cancel</button>
                     <button id="confirmSnipOcrBtn"
@@ -104,16 +144,22 @@
             </div>
         </div>
         <div id="spinner"
-            class="hidden flex items-center justify-center gap-3 mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            class="hidden flex items-center justify-center gap-3 mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl">
             <div class="spinner"></div>
-            <span id="spinnerText" class="text-blue-700 text-sm font-medium">Processing...</span>
+            <span id="spinnerText" class="text-blue-700 dark:text-blue-300 text-sm font-semibold">Processing...</span>
         </div>
 
         <!-- Two-Pane Layout: Source and Editor -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-screen">
             <!-- Left Pane: Uploaded Document Viewer -->
             <div class="flex flex-col">
-                <h2 class="text-lg font-bold text-gray-800 mb-3">Source Document</h2>
+                <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Source Document
+                </h2>
                 <!-- Tab Container -->
                 <div class="flex items-center justify-between mb-2 no-print">
                     <div id="tabsContainer" class="flex flex-wrap gap-2 overflow-x-auto pb-1">
@@ -135,12 +181,19 @@
 
             <!-- Right Pane: A4 Editor Container -->
             <div class="flex flex-col">
-                <h2 class="text-lg font-bold text-gray-800 mb-3">OCR Editor</h2>
-                <div class="flex-1 overflow-auto border border-gray-300 rounded-lg">
+                <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    OCR Editor
+                </h2>
+                <div class="flex-1 overflow-auto border border-gray-300 dark:border-slate-700 rounded-lg">
                     <div
-                        class="a4-container bg-gradient-to-br from-white via-blue-50 to-blue-100 p-6 md:p-10 m-auto rounded-2xl shadow-xl border border-blue-100">
+                        class="a4-container bg-gradient-to-br from-white via-blue-50 to-blue-100 dark:from-slate-800 dark:via-slate-900 dark:to-slate-900 p-6 md:p-10 m-auto rounded-2xl shadow-xl border border-blue-100 dark:border-slate-700">
                         <!-- Quill Editor -->
-                        <div class="rounded-xl bg-white/80 shadow border border-gray-200 p-4 md:p-6">
+                        <div
+                            class="rounded-xl bg-white/80 dark:bg-slate-800/80 shadow border border-gray-200 dark:border-slate-700 p-4 md:p-6">
                             <div id="editor"></div>
                         </div>
                     </div>
@@ -159,9 +212,10 @@
 
     <!-- Export Menu Modal -->
     <div id="exportModal"
-        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print">
-        <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-            <h2 class="text-xl font-bold text-gray-800 mb-4">Export Document</h2>
+        class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 no-print">
+        <div
+            class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-200 dark:border-slate-800">
+            <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-6">Export Document</h2>
 
             <div class="space-y-2">
                 <!-- PDF Option -->
@@ -210,9 +264,10 @@
 
     <!-- Custom Export Modal -->
     <div id="customExportModal"
-        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print">
-        <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-            <h2 class="text-xl font-bold text-gray-800 mb-4">Custom Export</h2>
+        class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 no-print">
+        <div
+            class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-200 dark:border-slate-800">
+            <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-6">Custom Export</h2>
 
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">Select Format:</label>
@@ -258,9 +313,10 @@
 
     <!-- OCR Page Selection Modal -->
     <div id="ocrModal"
-        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 no-print">
-        <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-            <h2 class="text-xl font-bold text-gray-800 mb-4">Select Pages for OCR</h2>
+        class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 no-print">
+        <div
+            class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-200 dark:border-slate-800">
+            <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-6">Select Pages</h2>
 
             <!-- File info -->
             <div class="mb-4 p-3 bg-gray-50 rounded-lg">

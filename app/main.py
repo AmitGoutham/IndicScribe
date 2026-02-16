@@ -163,6 +163,7 @@ async def voice(
 ) -> Any:
     """
     Transcribe speech to text using Google Cloud Speech-to-Text API.
+    Fallback for browsers that don't support Web Speech API.
     """
     try:
         if not file.filename:

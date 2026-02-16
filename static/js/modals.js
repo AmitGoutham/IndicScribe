@@ -8,10 +8,10 @@ export const modals = {
      */
     init() {
         document.querySelectorAll('.close-modal').forEach(btn => {
-            btn.onclick = (e) => {
+            btn.addEventListener('click', (e) => {
                 const modal = e.target.closest('.fixed');
                 if (modal) modal.classList.add('hidden');
-            };
+            });
         });
 
         // Close on background click

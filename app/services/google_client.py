@@ -6,6 +6,7 @@ import os
 import io
 import logging
 import time
+import subprocess
 from typing import Optional, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -176,30 +177,95 @@ class SpeechService:
         self.client = speech_client
 
     def _convert_audio_to_wav(self, audio_bytes: bytes) -> bytes:
-        """Convert audio to optimal format for Speech API"""
-        from pydub import AudioSegment
-        audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
-        audio = audio.set_channels(1).set_frame_rate(16000)
-        wav_buffer = io.BytesIO()
-        audio.export(wav_buffer, format="wav")
-        return wav_buffer.getvalue()
+        """Convert audio to optimal format for Speech API using ffmpeg directly"""
+        try:
+            process = subprocess.Popen(
+                ['ffmpeg', '-i', 'pipe:0', '-af', 'afftdn=nf=-25, highpass=f=200', '-ac', '1', '-ar', '16000', '-f', 'wav', 'pipe:1'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = process.communicate(input=audio_bytes)
+            
+            if process.returncode != 0:
+                logger.error(f"ffmpeg error: {stderr.decode()}")
+                return b""
+            
+            return stdout
+        except Exception as e:
+            logger.error(f"Audio conversion failed: {e}")
+            return b""
+
+    def _get_best_model_for_lang(self, lang: str) -> str:
+        """
+        Determines the best supported model for a given language.
+        Sanskrit (sa-IN) currently doesn't support 'latest_long'.
+        """
+        if lang == "sa-IN":
+            return "default"
+        return "latest_long"
 
     def transcribe(self, audio_bytes: bytes, language_code: str = "hi-IN") -> str:
-        """Transcribe audio to text"""
+        """
+        Transcribe audio to text with enhanced accuracy and automatic language detection.
+        """
         try:
             wav_audio = self._convert_audio_to_wav(audio_bytes)
             audio = speech.RecognitionAudio(content=wav_audio)
+            
+            main_lang = language_code
+            alt_langs = []
+            
+            if language_code == "auto":
+                main_lang = "hi-IN"
+                alt_langs = ["en-US", "kn-IN", "te-IN", "sa-IN"]
+                logger.info(f"Auto-detect enabled. Primary: {main_lang}, Alternatives: {alt_langs}")
+            
+            best_model = self._get_best_model_for_lang(main_lang)
+            logger.info(f"Using model '{best_model}' for language '{main_lang}'")
+
+            phrase_hints = [
+                "period", "comma", "question mark", "new paragraph", "new line",
+                "namaste", "dhanyawad", "shukriya", "swagat hai",
+                "kannada", "telugu", "hindi", "sanskrit", "english"
+            ]
+            
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=16000,
-                language_code=language_code,
+                language_code=main_lang,
+                alternative_language_codes=alt_langs,
                 enable_automatic_punctuation=True,
+                enable_spoken_punctuation=True,
+                speech_contexts=[speech.SpeechContext(phrases=phrase_hints, boost=15.0)],
+                use_enhanced=True,
+                model=best_model,
+                metadata=speech.RecognitionMetadata(
+                    interaction_type=speech.RecognitionMetadata.InteractionType.DICTATION,
+                    microphone_distance=speech.RecognitionMetadata.MicrophoneDistance.NEARFIELD,
+                    recording_device_type=speech.RecognitionMetadata.RecordingDeviceType.SMARTPHONE
+                )
             )
+            
+            logger.info(f"Sending transcription request (lang: {main_lang})...")
             response = self.client.recognize(config=config, audio=audio)
-            return " ".join([res.alternatives[0].transcript for res in response.results if res.alternatives])
+            
+            transcript_parts = []
+            for result in response.results:
+                if result.alternatives:
+                    transcript_parts.append(result.alternatives[0].transcript)
+            
+            final_transcript = " ".join(transcript_parts)
+            
+            if language_code == "auto" and response.results:
+                detected_lang = response.results[0].language_code
+                logger.info(f"Auto-detected language: {detected_lang}")
+                
+            return final_transcript
         except Exception as e:
             logger.error(f"Transcription error: {e}")
             return ""
+
 
 class GoogleCloudClient:
     """Wrapper for Google Cloud APIs"""

@@ -4,12 +4,18 @@ import { tabs } from './js/tabs.js';
 import { editor } from './js/editor.js';
 import { pdf } from './js/pdf.js';
 import { snip } from './js/snip.js';
-import { voice } from './js/voice.js';
+// import { voice } from './js/voice.js'; // Removed
 import { utils } from './js/utils.js';
 import { modals } from './js/modals.js';
+import { ThemeManager } from './js/theme.js';
+import { VoiceTyping } from './js/voice-typing.js';
+
+let voiceTyping;
 
 // ==================== Initialization ====================
 document.addEventListener('DOMContentLoaded', () => {
+    const themeManager = new ThemeManager();
+    voiceTyping = new VoiceTyping(editor);
     editor.init('#editor');
     snip.init((text) => editor.insertText(text));
     modals.init();
@@ -60,6 +66,7 @@ async function switchTab(index) {
                 const img = document.createElement('img');
                 img.src = e.target.result;
                 img.className = 'w-full h-auto';
+                img.draggable = false; // Prevent default browser dragging
                 ui.sourceViewer.innerHTML = '';
                 ui.sourceViewer.appendChild(img);
                 ui.syncEditorHeight();
@@ -183,15 +190,9 @@ document.getElementById('confirmOcrBtn').addEventListener('click', async () => {
     }
 });
 
-// Voice
+// Voice logic - Google Voice Typing via Web Speech API
 document.getElementById('micBtn').addEventListener('click', () => {
-    if (voice.isRecording) {
-        voice.stop();
-    } else {
-        voice.start(document.getElementById('language').value, (text) => {
-            editor.insertText(text);
-        });
-    }
+    voiceTyping.toggle(document.getElementById('language').value);
 });
 
 // Language/Font
