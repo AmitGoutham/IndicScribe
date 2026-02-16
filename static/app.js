@@ -9,6 +9,7 @@ import { utils } from './js/utils.js';
 import { modals } from './js/modals.js';
 import { ThemeManager } from './js/theme.js';
 import { VoiceTyping } from './js/voice-typing.js';
+import { collapsible } from './js/collapsible.js';
 
 let voiceTyping;
 
@@ -19,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editor.init('#editor');
     snip.init((text) => editor.insertText(text));
     modals.init();
+    collapsible.init();
 
     // Initial UI state
     ui.syncEditorHeight();

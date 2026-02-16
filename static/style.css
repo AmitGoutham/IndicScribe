@@ -140,6 +140,72 @@ body {
     margin: auto;
 }
 
+/* Collapsible Styles */
+.collapsible-content {
+    max-height: 2000px;
+    /* Large enough to fit content */
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.3s ease-in-out,
+        padding 0.4s ease-in-out;
+    opacity: 1;
+}
+
+.collapsible-content.collapsed {
+    max-height: 0 !important;
+    opacity: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    pointer-events: none;
+}
+
+/* Dynamic Layout Expansion */
+#main-layout-grid {
+    transition: grid-template-columns 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (min-width: 1024px) {
+    #main-layout-grid.source-collapsed {
+        grid-template-columns: min-content 1fr !important;
+        gap: 1rem !important;
+    }
+
+    #main-layout-grid.source-collapsed #source-section {
+        width: 40px;
+        /* Minimal width to show the header sideways or just the icon */
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    #main-layout-grid.source-collapsed #source-section .collapsible-header h2 {
+        display: none;
+        /* Hide text if too narrow, or keep it and let it clip */
+    }
+}
+
+.section-container {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.section-container.collapsed {
+    flex: 0 0 auto !important;
+}
+
+/* When a section is NOT collapsed, it should try to grow if its siblings are collapsed */
+.section-container:not(.collapsed) {
+    flex: 1 1 auto;
+}
+
+/* Ensure inner content fills the expanded section */
+.section-container:not(.collapsed) .collapsible-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
 /* Tab Styles */
 .doc-tab {
     padding: 0.5rem 1rem;
