@@ -22,23 +22,5 @@ export const api = {
         }
 
         return await response.json();
-    },
-
-    async transcribeVoice(audioBlob, language) {
-        const formData = new FormData();
-        formData.append('file', audioBlob, 'recording.webm');
-        formData.append('language', language);
-
-        const response = await fetch('/api/voice', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({ detail: 'Voice transcription failed' }));
-            throw new Error(error.detail || 'Transcription failed');
-        }
-
-        return await response.json();
     }
 };

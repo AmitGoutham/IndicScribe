@@ -20,6 +20,20 @@ export const modals = {
                 if (e.target === modal) modal.classList.add('hidden');
             });
         });
+
+        // Toggle page range inputs
+        const rangeInputs = document.getElementById('pageRangeInputs');
+        const allPagesRadio = document.getElementById('allPages');
+        const rangeRadio = document.getElementById('pageRange');
+
+        if (allPagesRadio && rangeRadio && rangeInputs) {
+            allPagesRadio.addEventListener('change', (e) => {
+                if (e.target.checked) rangeInputs.classList.add('hidden');
+            });
+            rangeRadio.addEventListener('change', (e) => {
+                if (e.target.checked) rangeInputs.classList.remove('hidden');
+            });
+        }
     },
 
     show(modalId) {

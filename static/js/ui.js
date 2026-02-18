@@ -68,9 +68,11 @@ export const ui = {
     },
 
     repositionToasts() {
+        const spacing = 60;
+        const initialOffset = 16;
         this.toasts.forEach((toast, index) => {
-            const offset = index * 60 + 16;
-            toast.style.bottom = `${offset}px`;
+            const offset = index * spacing + initialOffset;
+            toast.style.transform = `translate(-50%, -${offset}px)`;
         });
     },
 

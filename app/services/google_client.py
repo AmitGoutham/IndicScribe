@@ -7,12 +7,14 @@ import io
 import logging
 import time
 import subprocess
+import shutil
+import tempfile
 from typing import Optional, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pdfplumber
-from pdf2image import convert_from_bytes
-from google.cloud import vision, speech
+from pdf2image import convert_from_bytes, convert_from_path
+from google.cloud import vision
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ class VisionService:
     def __init__(self, vision_client: vision.ImageAnnotatorClient):
         """Initialize VisionService with a Vision API client"""
         self.client = vision_client
-        self.max_workers = 4  # Optimized parallel processing for PDF pages
+        self.max_workers = 8  # Increased for faster Vision API calls
 
     def _is_pdf(self, file_bytes: bytes) -> bool:
         """Check if file is PDF by magic bytes"""
@@ -34,29 +36,70 @@ class VisionService:
 
     def detect_text(self, file_bytes: bytes, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
         """
-        Main entry point: Detect and extract text from image or PDF.
+        Main entry point (Legacy): Detect and extract text from image or PDF bytes.
+        Delegates to file-based processing for consistency.
         """
         try:
             if not file_bytes:
                 logger.warning("Empty file bytes provided")
                 return ""
             
-            if self._is_pdf(file_bytes):
-                logger.info("PDF detected - Starting hybrid OCR pipeline")
-                return self._extract_text_from_pdf_hybrid(file_bytes, page_start=page_start, page_end=page_end)
-            else:
-                logger.info("Image detected - Starting Vision API OCR")
-                return self._extract_text_from_image(file_bytes)
+            # Save bytes to temp file to use the optimized path
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
             
+            try:
+                return self.detect_text_from_path(tmp_path, page_start=page_start, page_end=page_end)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                    
         except Exception as e:
             logger.error(f"Error in detect_text: {e}")
             return f"Error detecting text: {str(e)}"
 
+    def detect_text_from_path(self, file_path: str, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
+        """
+        Detect and extract text from image or PDF file path with automatic language detection.
+        """
+        try:
+            if not os.path.exists(file_path):
+                logger.error(f"File not found: {file_path}")
+                return ""
+
+            # Check if PDF by extension or magic bytes
+            is_pdf = file_path.lower().endswith('.pdf')
+            if not is_pdf:
+                with open(file_path, 'rb') as f:
+                    header = f.read(4)
+                    is_pdf = header.startswith(b'%PDF')
+
+            if is_pdf:
+                logger.info("PDF detected - Starting memory-optimized hybrid OCR pipeline (auto-lang)")
+                return self._extract_text_from_pdf_hybrid(file_path, page_start=page_start, page_end=page_end)
+            else:
+                logger.info("Image detected - Starting Vision API OCR (auto-lang)")
+                with open(file_path, 'rb') as f:
+                    return self._extract_text_from_image(f.read())
+            
+        except Exception as e:
+            logger.error(f"Error in detect_text_from_path: {e}")
+            return f"Error detecting text: {str(e)}"
+
     def _extract_text_from_image(self, file_bytes: bytes) -> str:
-        """Extract text from image using Google Vision API"""
+        """Extract text from image using Google Vision API with robust automatic detection"""
         try:
             image = vision.Image(content=file_bytes)
-            response = self.client.document_text_detection(image=image)
+            
+            # For "auto" mode, we provide a broad set of Indic hints.
+            # Google Vision API is very good at selecting the right one from these,
+            # but providing NO hints often defaults incorrectly for specific scripts like Sanskrit.
+            # Including major scripts: Hindi, Sanskrit, Kannada, Telugu, Tamil, Bengali, Gujarati, Malayalam, Punjabi, Marathi.
+            language_hints = ["hi", "sa", "kn", "te", "ta", "bn", "gu", "ml", "pa", "mr", "en"]
+            context = vision.ImageContext(language_hints=language_hints)
+            
+            response = self.client.document_text_detection(image=image, image_context=context)
             
             if response.error.message:
                 logger.error(f"Vision API error: {response.error.message}")
@@ -70,217 +113,197 @@ class VisionService:
     def _is_text_quality_good(self, text: str) -> bool:
         """
         Evaluate if extracted text is of acceptable quality.
-        Detects CID-encoded garbage and other encoding issues.
+        Detects broken PDF encodings, CID garbage, and encoding artifacts.
         """
-        if not text or len(text.strip()) < 20:
+        if not text or len(text.strip()) < 5:
+            return False
+            
+        total_len = len(text)
+        
+        # 1. Detect CID-encoded garbage (common in broken PDFs)
+        cid_count = text.count('(cid:')
+        if (cid_count / total_len) * 100 > 1:
+            logger.info(f"Quality Check: Failed due to high CID count ({cid_count})")
             return False
         
-        cid_count = text.count('(cid:')
-        if (cid_count / len(text)) * 100 > 5:
+        # 2. Detect Encoding Artifacts (Latin-1 Supplement characters used as garbage)
+        # Characters in 128-255 range are rarely valid in this context unless it's specific European text.
+        # In Indic PDF extraction, these are almost always garbage mapping artifacts.
+        extended_latin_count = 0
+        indic_char_count = 0
+        control_chars = 0
+        
+        for char in text:
+            cp = ord(char)
+            # Control characters
+            if cp < 32 and char not in '\n\r\t ':
+                control_chars += 1
+            # Latin-1 Supplement / Extended ASCII (Broken mappings often end up here)
+            elif 128 <= cp <= 255:
+                extended_latin_count += 1
+            # Standard Indic Unicode Blocks (Devanagari to Malayalam / Sinhala)
+            elif 0x0900 <= cp <= 0x0DFF:
+                indic_char_count += 1
+        
+        # High extended latin count is the primary indicator of the "pathetic" OCR the user reported
+        if (extended_latin_count / total_len) * 100 > 2:
+            logger.info(f"Quality Check: Failed due to high extended latin count ({extended_latin_count})")
+            return False
+            
+        if (control_chars / total_len) * 100 > 2:
+            logger.info(f"Quality Check: Failed due to high control character count")
+            return False
+            
+        # 3. Script Coherence Check
+        # If the text has a lot of "weird" characters but NO Indic characters, 
+        # it's likely a broken mapping of an Indic script.
+        # (Assuming the app is used for Indic docs)
+        words = text.split()
+        if not words: return False
+        
+        # Check if it looks like English. If it's not English and has no Indic chars, it's garbage.
+        # Very simple check: ratio of standard English characters
+        english_like_chars = sum(1 for c in text if 'a' <= c.lower() <= 'z' or c.isdigit() or c in ' .,?!-\n\r\t')
+        english_ratio = english_like_chars / total_len
+        
+        if english_ratio < 0.7 and indic_char_count == 0:
+            logger.info(f"Quality Check: Failed script coherence (English Ratio: {english_ratio:.2f}, Indic Chars: {indic_char_count})")
             return False
             
         return True
 
-    def _extract_text_from_pdf_hybrid(self, pdf_bytes: bytes, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
+    def _extract_text_from_pdf_hybrid(self, pdf_path: str, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
         """
         Hybrid PDF OCR Strategy: Direct extraction first, then Vision API fallback.
         """
         try:
             # Phase 1: Direct extraction
             logger.info("Phase 1: Attempting direct text extraction...")
-            extracted_text = self._extract_text_directly_from_pdf(pdf_bytes, page_start=page_start, page_end=page_end)
+            extracted_text = self._extract_text_directly_from_pdf(pdf_path, page_start=page_start, page_end=page_end)
             
             if self._is_text_quality_good(extracted_text):
                 logger.info("✓ Phase 1 successful")
                 return extracted_text
             
             # Phase 2: Vision API fallback
-            logger.warning("Phase 1 quality poor. Phase 2: Image-based OCR...")
-            return self._extract_text_via_images(pdf_bytes, page_start=page_start, page_end=page_end)
+            logger.warning("Phase 1 quality poor. Phase 2: Image-based OCR (auto-lang)...")
+            return self._extract_text_via_images(pdf_path, page_start=page_start, page_end=page_end)
             
         except Exception as e:
             logger.error(f"Error in hybrid OCR: {e}")
             return ""
 
-    def _extract_text_directly_from_pdf(self, pdf_bytes: bytes, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
-        """Fast direct text extraction from searchable PDFs."""
-        text_parts = []
+    def _extract_text_directly_from_pdf(self, pdf_path: str, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
+        """Fast parallel direct text extraction from searchable PDFs."""
         try:
-            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            with pdfplumber.open(pdf_path) as pdf:
                 total_pages = len(pdf.pages)
                 start = max(1, page_start) if page_start else 1
                 end = min(total_pages, page_end) if page_end else total_pages
                 
-                for i in range(start - 1, end):
-                    page_text = pdf.pages[i].extract_text()
-                    if page_text:
-                        text_parts.append(f"--- Page {i+1} ---\n{page_text}")
-            
-            return "\n\n".join(text_parts)
+                # Create a list of page indices to process
+                pages_to_process = list(range(start - 1, end))
+                
+                # Helper function for parallel processing
+                def extract_single_page(page_idx):
+                    try:
+                        # Re-open in each thread to avoid session sharing issues if any
+                        with pdfplumber.open(pdf_path) as inner_pdf:
+                            return page_idx + 1, inner_pdf.pages[page_idx].extract_text() or ""
+                    except Exception as e:
+                        logger.error(f"Error extracting page {page_idx + 1}: {e}")
+                        return page_idx + 1, ""
+
+                # Process in parallel
+                results = []
+                with ThreadPoolExecutor(max_workers=min(self.max_workers, len(pages_to_process) or 1)) as executor:
+                    futures = [executor.submit(extract_single_page, idx) for idx in pages_to_process]
+                    for future in as_completed(futures):
+                        results.append(future.result())
+                
+                # Sort and join
+                results.sort(key=lambda x: x[0])
+                text_parts = [f"--- Page {num} ---\n{text}" for num, text in results if text]
+                return "\n\n".join(text_parts)
+                
         except Exception as e:
             logger.error(f"Direct extraction error: {e}")
             return ""
 
-    def _extract_text_via_images(self, pdf_bytes: bytes, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
+    def _extract_text_via_images(self, pdf_path: str, page_start: Optional[int] = None, page_end: Optional[int] = None) -> str:
         """
         Convert PDF to images and OCR via Vision API.
-        Optimized to only convert requested pages.
+        Optimized: Uses disk-based conversion to handle very large PDFs.
         """
+        temp_dir = tempfile.mkdtemp()
         try:
             logger.info(f"Converting PDF to images (pages {page_start or 1} to {page_end or 'end'})...")
             
-            # Optimization: Only convert necessary pages from the start
-            # This significantly reduces memory usage and processing time for large PDFs
-            images = convert_from_bytes(
-                pdf_bytes, 
+            # Use convert_from_path with output_folder to keep RAM usage low
+            paths = convert_from_path(
+                pdf_path, 
                 dpi=200, 
                 first_page=page_start or 1, 
-                last_page=page_end
+                last_page=page_end,
+                output_folder=temp_dir,
+                fmt="jpeg",
+                paths_only=True
             )
             
-            total_converted = len(images)
-            logger.info(f"Successfully converted {total_converted} pages")
+            total_converted = len(paths)
+            logger.info(f"Successfully converted {total_converted} pages to storage")
             
             results: List[Tuple[int, str]] = []
             start_num = page_start or 1
             
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Page numbers in results should match the actual PDF page numbers
-                futures = {executor.submit(self._ocr_page, img, start_num + idx): (start_num + idx) for idx, img in enumerate(images)}
+            # Batching to avoid overwhelming the Vision API (and threadpool management)
+            batch_size = 10
+            for i in range(0, len(paths), batch_size):
+                batch_paths = paths[i:i+batch_size]
+                batch_start_idx = i
                 
-                for future in as_completed(futures):
-                    page_num = futures[future]
-                    try:
-                        results.append((page_num, future.result()))
-                    except Exception as e:
-                        logger.error(f"Page {page_num} OCR failed: {e}")
-            
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures = {
+                        executor.submit(self._ocr_page_from_path, path, start_num + batch_start_idx + idx): (start_num + batch_start_idx + idx) 
+                        for idx, path in enumerate(batch_paths)
+                    }
+                    
+                    for future in as_completed(futures):
+                        page_num = futures[future]
+                        try:
+                            results.append((page_num, future.result()))
+                        except Exception as e:
+                            logger.error(f"Page {page_num} OCR failed: {e}")
+
             results.sort(key=lambda x: x[0])
             return "\n\n".join([f"--- Page {num} ---\n{text}" for num, text in results if text])
             
         except Exception as e:
             logger.error(f"Critical error in image-based OCR: {e}", exc_info=True)
             return f"[Error processing document: {str(e)}]"
+        finally:
+            # Clean up all temporary images
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def _ocr_page(self, pil_image, page_num: int) -> str:
-        """Perform OCR on a single PIL image"""
-        img_byte_arr = io.BytesIO()
-        pil_image.save(img_byte_arr, format='JPEG', quality=85) # Lossy compression for faster upload
-        image = vision.Image(content=img_byte_arr.getvalue())
-        response = self.client.document_text_detection(image=image)
-        return response.full_text_annotation.text if response.full_text_annotation else ""
-
-class SpeechService:
-    """Service for handling speech-to-text transcription using Google Cloud Speech API"""
-
-    def __init__(self, speech_client: speech.SpeechClient):
-        self.client = speech_client
-
-    def _convert_audio_to_wav(self, audio_bytes: bytes) -> bytes:
-        """Convert audio to optimal format for Speech API using ffmpeg directly"""
+    def _ocr_page_from_path(self, img_path: str, page_num: int) -> str:
+        """Perform OCR on a single image file with auto-lang detection"""
         try:
-            process = subprocess.Popen(
-                ['ffmpeg', '-i', 'pipe:0', '-af', 'afftdn=nf=-25, highpass=f=200', '-ac', '1', '-ar', '16000', '-f', 'wav', 'pipe:1'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate(input=audio_bytes)
-            
-            if process.returncode != 0:
-                logger.error(f"ffmpeg error: {stderr.decode()}")
-                return b""
-            
-            return stdout
+            with open(img_path, 'rb') as f:
+                content = f.read()
+            return self._extract_text_from_image(content)
         except Exception as e:
-            logger.error(f"Audio conversion failed: {e}")
-            return b""
-
-    def _get_best_model_for_lang(self, lang: str) -> str:
-        """
-        Determines the best supported model for a given language.
-        Sanskrit (sa-IN) currently doesn't support 'latest_long'.
-        """
-        if lang == "sa-IN":
-            return "default"
-        return "latest_long"
-
-    def transcribe(self, audio_bytes: bytes, language_code: str = "hi-IN") -> str:
-        """
-        Transcribe audio to text with enhanced accuracy and automatic language detection.
-        """
-        try:
-            wav_audio = self._convert_audio_to_wav(audio_bytes)
-            audio = speech.RecognitionAudio(content=wav_audio)
-            
-            main_lang = language_code
-            alt_langs = []
-            
-            if language_code == "auto":
-                main_lang = "hi-IN"
-                alt_langs = ["en-US", "kn-IN", "te-IN", "sa-IN"]
-                logger.info(f"Auto-detect enabled. Primary: {main_lang}, Alternatives: {alt_langs}")
-            
-            best_model = self._get_best_model_for_lang(main_lang)
-            logger.info(f"Using model '{best_model}' for language '{main_lang}'")
-
-            phrase_hints = [
-                "period", "comma", "question mark", "new paragraph", "new line",
-                "namaste", "dhanyawad", "shukriya", "swagat hai",
-                "kannada", "telugu", "hindi", "sanskrit", "english"
-            ]
-            
-            config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=16000,
-                language_code=main_lang,
-                alternative_language_codes=alt_langs,
-                enable_automatic_punctuation=True,
-                enable_spoken_punctuation=True,
-                speech_contexts=[speech.SpeechContext(phrases=phrase_hints, boost=15.0)],
-                use_enhanced=True,
-                model=best_model,
-                metadata=speech.RecognitionMetadata(
-                    interaction_type=speech.RecognitionMetadata.InteractionType.DICTATION,
-                    microphone_distance=speech.RecognitionMetadata.MicrophoneDistance.NEARFIELD,
-                    recording_device_type=speech.RecognitionMetadata.RecordingDeviceType.SMARTPHONE
-                )
-            )
-            
-            logger.info(f"Sending transcription request (lang: {main_lang})...")
-            response = self.client.recognize(config=config, audio=audio)
-            
-            transcript_parts = []
-            for result in response.results:
-                if result.alternatives:
-                    transcript_parts.append(result.alternatives[0].transcript)
-            
-            final_transcript = " ".join(transcript_parts)
-            
-            if language_code == "auto" and response.results:
-                detected_lang = response.results[0].language_code
-                logger.info(f"Auto-detected language: {detected_lang}")
-                
-            return final_transcript
-        except Exception as e:
-            logger.error(f"Transcription error: {e}")
+            logger.error(f"Error OCR-ing {img_path}: {e}")
             return ""
-
 
 class GoogleCloudClient:
     """Wrapper for Google Cloud APIs"""
 
     def __init__(self):
         self.vision_client = vision.ImageAnnotatorClient()
-        self.speech_client = speech.SpeechClient()
         self.vision_service = VisionService(self.vision_client)
-        self.speech_service = SpeechService(self.speech_client)
 
     def get_vision_service(self) -> VisionService:
         return self.vision_service
-
-    def get_speech_service(self) -> SpeechService:
-        return self.speech_service
 
 _google_client = None
 

@@ -4,13 +4,6 @@
 
 export const editor = {
     quill: null,
-    fontMap: {
-        'en-US': 'Inter',
-        'hi-IN': 'Noto Sans Devanagari',
-        'sa-IN': 'Noto Sans Devanagari',
-        'kn-IN': 'Noto Sans Kannada',
-        'te-IN': 'Noto Sans Telugu'
-    },
 
     init(containerId) {
         this.quill = new Quill(containerId, {
@@ -78,11 +71,6 @@ export const editor = {
         this.quill.setSelection(length + text.length + 2);
     },
 
-    setFont(langCode) {
-        if (!this.quill) return;
-        const font = this.fontMap[langCode] || 'Inter';
-        this.quill.format('font', font);
-    },
 
     getText() {
         return this.quill ? this.quill.getText() : '';

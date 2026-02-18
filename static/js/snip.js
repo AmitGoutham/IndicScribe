@@ -8,7 +8,8 @@ export const snip = {
     isSnipping: false,
     snipStart: null,
     snipRect: null,
-    snipSelection: null,
+    snipSelections: [],
+    snipRects: [],
     sourceViewer: null,
 
     init(onComplete) {
@@ -21,10 +22,11 @@ export const snip = {
 
         document.getElementById('cancelSnipOcrBtn').addEventListener('click', () => this.cancel());
         document.getElementById('confirmSnipOcrBtn').addEventListener('click', () => this.confirm(onComplete));
+        document.getElementById('selectMoreSnipBtn').addEventListener('click', () => this.selectMore());
 
         const modal = document.getElementById('snipOcrModal');
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) this.cancel();
+            if (e.target === modal) this.selectMore(); // Default to "Select More" on backdrop click for better flow
         });
     },
 
@@ -121,58 +123,81 @@ export const snip = {
         const finalizedW = Math.abs(selectionX - this.snipStart.targetX);
         const finalizedH = Math.abs(selectionY - this.snipStart.targetY);
 
-        this.snipSelection = {
+        this.snipSelections.push({
             x: finalizedX,
             y: finalizedY,
             w: finalizedW,
             h: finalizedH,
             target: this.snipStart.target
-        };
+        });
+
+        // Store current rect to persist it
+        this.snipRects.push(this.snipRect);
+        this.snipRect = null; // Prepare for next potential snip
+
         document.getElementById('snipOcrModal').classList.remove('hidden');
+    },
+
+    selectMore() {
+        document.getElementById('snipOcrModal').classList.add('hidden');
+        this.isSnipping = false;
+        this.snipStart = null;
     },
 
     cancel() {
         document.getElementById('snipOcrModal').classList.add('hidden');
-        if (this.snipRect) {
-            this.snipRect.remove();
-            this.snipRect = null;
-        }
-        this.snipSelection = null;
+        if (this.snipRect) this.snipRect.remove();
+        this.snipRects.forEach(r => r.remove());
+
+        this.snipRect = null;
+        this.snipRects = [];
+        this.snipSelections = [];
         this.isSnipping = false;
         this.snipStart = null;
     },
 
     async confirm(onComplete) {
-        const selection = this.snipSelection;
-        this.cancel();
-        if (!selection) return;
+        const selections = [...this.snipSelections];
+        this.cancel(); // Clear UI and data immediately
+        if (selections.length === 0) return;
 
-        ui.showSpinner('Performing OCR on selection...');
+        ui.showSpinner(`Performing OCR on ${selections.length} selection(s)...`);
 
         try {
-            const target = selection.target;
-            const displayRect = target.getBoundingClientRect();
-            const scaleX = (target.naturalWidth || target.width) / displayRect.width;
-            const scaleY = (target.naturalHeight || target.height) / displayRect.height;
+            const results = [];
+            for (const selection of selections) {
+                const target = selection.target;
+                const displayRect = target.getBoundingClientRect();
+                const scaleX = (target.naturalWidth || target.width) / displayRect.width;
+                const scaleY = (target.naturalHeight || target.height) / displayRect.height;
 
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.round(selection.w * scaleX);
-            canvas.height = Math.round(selection.h * scaleY);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(selection.w * scaleX);
+                canvas.height = Math.round(selection.h * scaleY);
 
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(
-                target,
-                Math.round(selection.x * scaleX), Math.round(selection.y * scaleY),
-                canvas.width, canvas.height,
-                0, 0, canvas.width, canvas.height
-            );
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(
+                    target,
+                    Math.round(selection.x * scaleX), Math.round(selection.y * scaleY),
+                    canvas.width, canvas.height,
+                    0, 0, canvas.width, canvas.height
+                );
 
-            const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-            if (!blob) throw new Error('Failed to capture selection');
+                const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+                if (!blob) continue;
 
-            const result = await api.runOcr(blob);
-            onComplete(result.text);
-            ui.notify('Selection OCR complete', 'success');
+                const result = await api.runOcr(blob);
+                if (result && result.text) {
+                    results.push(result.text);
+                }
+            }
+
+            if (results.length > 0) {
+                onComplete(results.join('\n\n'));
+                ui.notify(`OCR complete for ${results.length} area(s)`, 'success');
+            } else {
+                ui.notify('No text detected in selections', 'warning');
+            }
         } catch (err) {
             ui.notify(err.message, 'error');
             onComplete(`[Error: ${err.message}]`);

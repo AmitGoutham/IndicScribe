@@ -27,7 +27,7 @@
 }
 
 * {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', 'Noto Sans Devanagari', 'Noto Sans Kannada', 'Noto Sans Telugu', 'Noto Sans Tamil', 'Noto Sans Bengali', 'Noto Sans Gujarati', 'Noto Sans Malayalam', 'Noto Sans Gurmukhi', sans-serif;
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
@@ -558,6 +558,33 @@ body {
     background-color: var(--bg-primary) !important;
 }
 
+
 .dark .hover\:bg-blue-50:hover {
     background-color: var(--surface-hover) !important;
+}
+
+
+/* LIGHT MODE DEFAULTS */
+#startPage,
+#endPage {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    /* text-gray-900 */
+    border: 1px solid #d1d5db !important;
+}
+
+/* DARK MODE OVERRIDES */
+.dark #startPage,
+.dark #endPage {
+    background-color: #1e293b !important;
+    /* slate-800 */
+    color: #f8fafc !important;
+    /* slate-50 */
+    border: 1px solid #334155 !important;
+}
+
+#startPage:focus,
+#endPage:focus {
+    border-color: #2563eb !important;
+    /* blue-600 */
 }

@@ -54,6 +54,7 @@ export const utils = {
      */
     formatNumericInput(value) {
         const num = this.cleanNumericInput(value.toString());
-        return num === null ? '' : num.toString();
+        // Prevent 0 as it's not a valid page number
+        return (num === null || num === 0) ? '' : num.toString();
     }
 };
