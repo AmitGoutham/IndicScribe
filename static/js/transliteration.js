@@ -47,33 +47,12 @@ export class Transliteration {
 
     /**
      * Transliterates the entire editor content to a target scheme
-     * @param {string} targetScheme - The scheme to convert to (e.g., 'kannada', 'iast')
+     * @param {string} targetScheme - The scheme to convert to (e.g., 'kannada', 'english')
      */
     async transliterateEditor(targetScheme) {
         // Always use the original OCR text for transliteration
         const text = this.originalText || this.editor.getText();
         if (!text.trim()) return;
-
-
-        // If English, transliterate the original OCR text to ITRANS (English) using Sanscript
-        if (targetScheme === 'english') {
-            const sans = typeof Sanscript !== 'undefined' ? Sanscript : (typeof sanscript !== 'undefined' ? sanscript : null);
-            if (!sans) {
-                throw new Error('Sanscript library not loaded');
-            }
-            // Always use the original OCR text if available, fallback to editor text
-            const sourceText = this.originalText && this.originalText.trim() ? this.originalText : this.editor.getText();
-            if (!sourceText.trim()) return;
-            const detectedFrom = this.detectScheme(sourceText);
-            const converted = sans.t(sourceText, detectedFrom, 'itrans');
-            this.editor.quill.setText(converted);
-            this.currentScheme = 'english';
-            return;
-        }
-
-        // For all other languages, always run transliteration (even if detectedFrom === mappedTarget)
-        let mappedTarget = targetScheme;
-        if (targetScheme === 'hindi') mappedTarget = 'devanagari';
 
         const sans = typeof Sanscript !== 'undefined' ? Sanscript : (typeof sanscript !== 'undefined' ? sanscript : null);
         if (!sans) {
@@ -83,11 +62,27 @@ export class Transliteration {
         // Detect source script from original text
         const detectedFrom = this.detectScheme(text);
 
+        // Map friendly names to Sanscript scheme names
+        let mappedFrom = detectedFrom;
+        if (detectedFrom === 'hindi') mappedFrom = 'devanagari';
+        if (detectedFrom === 'english') mappedFrom = 'itrans';
+
+        let mappedTarget = targetScheme;
+        if (targetScheme === 'hindi') mappedTarget = 'devanagari';
+        if (targetScheme === 'english') mappedTarget = 'itrans';
+
         try {
-            const converted = sans.t(text, detectedFrom, mappedTarget);
-            this.editor.quill.setText(converted);
+            // Check if mapping to the same script to save computation
+            if (mappedFrom === mappedTarget) {
+                this.editor.setText(text);
+                this.currentScheme = targetScheme;
+                return;
+            }
+
+            const converted = sans.t(text, mappedFrom, mappedTarget);
+            this.editor.setText(converted);
             this.currentScheme = targetScheme;
-            console.log(`Auto-Transliterated: ${detectedFrom} -> ${mappedTarget}`);
+            console.log(`Auto-Transliterated: ${detectedFrom} -> ${targetScheme}`);
         } catch (err) {
             console.error('Transliteration failed:', err);
             throw err;

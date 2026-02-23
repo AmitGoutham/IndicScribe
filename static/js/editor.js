@@ -71,6 +71,11 @@ export const editor = {
         this.quill.setSelection(length + text.length + 2);
     },
 
+    setText(text) {
+        if (!this.quill) return;
+        this.quill.setText(text);
+    },
+
 
     getText() {
         return this.quill ? this.quill.getText() : '';

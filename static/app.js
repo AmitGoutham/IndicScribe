@@ -16,7 +16,10 @@ let dictation;
 let transliteration;
 
 // ==================== Initialization ====================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Authentication Check
+    await checkAuthStatus();
+
     const themeManager = new ThemeManager();
     editor.init('#editor');
     dictation = new Dictation(editor);
@@ -85,9 +88,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // File Upload event listeners (moved inside DOMContentLoaded)
     const fileInput = document.getElementById('fileInput');
-    document.getElementById('uploadBtn').addEventListener('click', () => fileInput.click());
+    document.getElementById('uploadBtn').addEventListener('click', () => {
+        // Hard check: prevent opening file picker if not authenticated
+        if (document.getElementById('app-view').classList.contains('hidden')) {
+            ui.notify('Please log in to upload files.', 'error');
+            return;
+        }
+        fileInput.click();
+    });
 
     fileInput.addEventListener('change', async (e) => {
+
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
 
@@ -116,6 +127,57 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+// ==================== Authentication & User Profile ====================
+async function checkAuthStatus() {
+    try {
+        const response = await fetch('/api/me');
+        if (response.status === 401 || response.status === 403) {
+            // Not authenticated: hide app, show hero
+            document.getElementById('app-view').classList.add('hidden');
+            document.getElementById('login-view').classList.remove('hidden');
+        } else if (response.ok) {
+            const user = await response.json();
+            // Authenticated: show app, hide hero, populate profile
+            document.getElementById('login-view').classList.add('hidden');
+            document.getElementById('app-view').classList.remove('hidden');
+
+            document.getElementById('userAvatar').src = user.picture || 'https://via.placeholder.com/150';
+            document.getElementById('userName').textContent = user.name || user.email;
+
+            updateCreditsUI(user.ocr_credits, user.voice_credits);
+        }
+    } catch (err) {
+        console.error("Auth check failed:", err);
+    }
+}
+
+function updateCreditsUI(ocrCredits, voiceCredits) {
+    const ocrEl = document.getElementById('credit-count');
+    ocrEl.textContent = ocrCredits;
+    // Simple color logic based on credits left
+    if (ocrCredits <= 0) {
+        ocrEl.className = 'bg-red-100 text-red-800 text-xs font-semibold px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-help';
+    } else {
+        ocrEl.className = 'bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300 border border-green-200 dark:border-green-800 cursor-help';
+    }
+
+    const voiceEl = document.getElementById('userVoiceCredits');
+    if (voiceEl) voiceEl.textContent = `${voiceCredits}s`;
+}
+
+// Refresh credits specifically (called after actions)
+window.refreshCredits = async function () {
+    try {
+        const response = await fetch('/api/me');
+        if (response.ok) {
+            const user = await response.json();
+            updateCreditsUI(user.ocr_credits, user.voice_credits);
+        }
+    } catch (err) {
+        console.error("Failed to refresh credits:", err);
+    }
+};
 
 // ==================== Switch/Remove Files ====================
 async function switchTab(index) {
@@ -250,17 +312,27 @@ document.getElementById('confirmOcrBtn').addEventListener('click', async () => {
         if (result.text) {
             editor.insertText(result.text);
             transliteration.setOriginalText(result.text);
-            transliteration.setCurrentScheme('devanagari');
+            const detected = transliteration.detectScheme(result.text);
+            transliteration.setCurrentScheme(detected);
             const msg = result.processing_time_seconds
                 ? `OCR complete in ${result.processing_time_seconds.toFixed(2)}s`
                 : 'OCR complete';
             ui.notify(msg, 'success');
+
+            // Refresh credits after successful OCR
+            if (window.refreshCredits) window.refreshCredits();
+
         } else {
             ui.notify('No text detected', 'info');
         }
     } catch (err) {
-        ui.notify(err.message, 'error');
-        editor.insertText(`[Error: ${err.message}]`);
+        // Handle 402 Payment Required gracefully
+        if (err.message && err.message.includes('402')) {
+            ui.notify('Not enough OCR credits. Please upgrade your plan.', 'error');
+        } else {
+            ui.notify(err.message || 'An error occurred during OCR', 'error');
+            editor.insertText(`[Error: ${err.message}]`);
+        }
     } finally {
         ui.hideSpinner();
     }
@@ -290,6 +362,7 @@ document.getElementById('scriptSelector').addEventListener('change', async (e) =
             await transliteration.transliterateEditor(targetScript);
             ui.notify(`Text converted to ${targetScript}`, 'success');
         } catch (err) {
+            console.error("Transliteration Error from JS:", err);
             ui.notify('Conversion failed', 'error');
         } finally {
             ui.hideSpinner();
